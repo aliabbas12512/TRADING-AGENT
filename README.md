@@ -73,6 +73,16 @@ Default strategy is a trend filter + timing signal:
 All of these are configurable via `.env` and the strategy module is
 decoupled from MT5, so it can be swapped or backtested independently.
 
+### Minimum daily trades (optional, higher risk)
+
+Set `MIN_DAILY_TRADES` in `.env` (default `0` = disabled) to make the agent
+guarantee at least that many trades per day. Once the normal MA+RSI signal
+has stayed HOLD, the agent falls back to a looser trend-only signal (fast
+MA vs. slow MA direction, no RSI timing) so it trades more often. This
+trades lower selectivity for a guaranteed trade count, so it carries more
+risk than the default strategy — leave it at `0` unless you have a specific
+reason (e.g. a challenge/prop-firm activity requirement) to need it.
+
 ## Risk management
 
 - `RISK_PER_TRADE_PCT` — % of account balance risked per trade (position

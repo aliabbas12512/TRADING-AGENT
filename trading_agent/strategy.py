@@ -56,3 +56,23 @@ def generate_signal(df: pd.DataFrame, params: StrategyParams = StrategyParams())
     if downtrend and rsi_cross_down:
         return Signal.SELL
     return Signal.HOLD
+
+
+def generate_trend_signal(df: pd.DataFrame, params: StrategyParams = StrategyParams()) -> Signal:
+    """Trend direction only, ignoring RSI timing.
+
+    Used as a relaxed fallback when a minimum daily trade count needs to be
+    met and the full MA+RSI signal hasn't fired. Trades more often and with
+    less selectivity than generate_signal, so it carries more risk.
+    """
+    data = compute_indicators(df, params)
+    valid = data.dropna(subset=["fast_ma", "slow_ma"])
+    if len(valid) < 1:
+        return Signal.HOLD
+
+    last = valid.iloc[-1]
+    if last["fast_ma"] > last["slow_ma"]:
+        return Signal.BUY
+    if last["fast_ma"] < last["slow_ma"]:
+        return Signal.SELL
+    return Signal.HOLD

@@ -2,11 +2,13 @@ import logging
 import time
 from datetime import datetime, timezone
 
+import MetaTrader5 as mt5
+
 from trading_agent.config import Config
 from trading_agent.mt5_connector import MT5Connector
 from trading_agent.order_executor import OrderExecutor
 from trading_agent.risk_manager import RiskManager, RiskParams
-from trading_agent.strategy import Signal, StrategyParams, generate_signal
+from trading_agent.strategy import Signal, StrategyParams, generate_signal, generate_trend_signal
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +36,8 @@ class TradingAgent:
             rsi_oversold=config.rsi_oversold,
         )
         self.executor: OrderExecutor | None = None
+        self._trade_count_date: str | None = None
+        self._trade_count_today: int = 0
 
     def start(self) -> None:
         self.connector.connect()
@@ -62,6 +66,7 @@ class TradingAgent:
 
         balance = self.connector.account_balance()
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        self._reset_trade_count_if_new_day(today)
 
         if self.risk_manager.daily_loss_limit_hit(balance, today):
             logger.warning("Daily loss limit reached; skipping trading for today.")
@@ -69,6 +74,16 @@ class TradingAgent:
 
         df = self.connector.fetch_rates(self.config.symbol, self.config.timeframe, RATES_LOOKBACK)
         signal = generate_signal(df, self.strategy_params)
+
+        if signal == Signal.HOLD and self._trade_count_today < self.config.min_daily_trades:
+            signal = generate_trend_signal(df, self.strategy_params)
+            if signal != Signal.HOLD:
+                logger.info(
+                    "No MA+RSI signal but only %d/%d trades today; using relaxed trend signal=%s.",
+                    self._trade_count_today,
+                    self.config.min_daily_trades,
+                    signal.value,
+                )
 
         open_positions = self.connector.open_positions(self.config.symbol, self.config.magic_number)
 
@@ -80,9 +95,15 @@ class TradingAgent:
             logger.info("Signal=%s but max open positions (%d) reached.", signal.value, len(open_positions))
             return
 
-        self._open_position_for_signal(signal, df, balance)
+        if self._open_position_for_signal(signal, df, balance):
+            self._trade_count_today += 1
 
-    def _open_position_for_signal(self, signal: Signal, df, balance: float) -> None:
+    def _reset_trade_count_if_new_day(self, today: str) -> None:
+        if self._trade_count_date != today:
+            self._trade_count_date = today
+            self._trade_count_today = 0
+
+    def _open_position_for_signal(self, signal: Signal, df, balance: float) -> bool:
         from trading_agent.strategy import compute_indicators
 
         indicators = compute_indicators(df, self.strategy_params)
@@ -108,9 +129,10 @@ class TradingAgent:
 
         if volume <= 0:
             logger.warning("Computed volume <= 0, skipping order.")
-            return
+            return False
 
-        self.executor.open_market_order(is_buy=is_buy, volume=volume, stop_loss=sl, take_profit=tp)
+        result = self.executor.open_market_order(is_buy=is_buy, volume=volume, stop_loss=sl, take_profit=tp)
+        return result.retcode == mt5.TRADE_RETCODE_DONE
 
     def run_forever(self) -> None:
         self.start()

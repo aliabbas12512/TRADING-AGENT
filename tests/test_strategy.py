@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 
 from trading_agent import strategy
-from trading_agent.strategy import Signal, StrategyParams, generate_signal
+from trading_agent.strategy import Signal, StrategyParams, generate_signal, generate_trend_signal
 
 PARAMS = StrategyParams(rsi_overbought=70, rsi_oversold=30)
 
@@ -60,3 +60,21 @@ def test_hold_when_trend_and_rsi_disagree(monkeypatch):
 def test_hold_when_insufficient_data():
     df = pd.DataFrame({"close": [100.0] * 5, "high": [101.0] * 5, "low": [99.0] * 5})
     assert generate_signal(df, PARAMS) == Signal.HOLD
+
+
+def test_trend_signal_buy_on_uptrend(monkeypatch):
+    rows = [_base_row(fast_ma=105, slow_ma=100, rsi_value=50)]
+    _patched_indicators(monkeypatch, rows)
+    assert generate_trend_signal(pd.DataFrame({"close": [101]}), PARAMS) == Signal.BUY
+
+
+def test_trend_signal_sell_on_downtrend(monkeypatch):
+    rows = [_base_row(fast_ma=95, slow_ma=100, rsi_value=50)]
+    _patched_indicators(monkeypatch, rows)
+    assert generate_trend_signal(pd.DataFrame({"close": [99]}), PARAMS) == Signal.SELL
+
+
+def test_trend_signal_hold_when_flat(monkeypatch):
+    rows = [_base_row(fast_ma=100, slow_ma=100, rsi_value=50)]
+    _patched_indicators(monkeypatch, rows)
+    assert generate_trend_signal(pd.DataFrame({"close": [100]}), PARAMS) == Signal.HOLD

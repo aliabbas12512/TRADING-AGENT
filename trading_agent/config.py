@@ -43,6 +43,7 @@ class Config:
 
     poll_interval_seconds: int
     live_trading_confirmed: bool
+    min_daily_trades: int
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -66,4 +67,5 @@ class Config:
             rsi_oversold=_get_float("RSI_OVERSOLD", 30),
             poll_interval_seconds=_get_int("POLL_INTERVAL_SECONDS", 60),
             live_trading_confirmed=_get_bool("LIVE_TRADING_CONFIRMED", False),
+            min_daily_trades=_get_int("MIN_DAILY_TRADES", 0),
         )
