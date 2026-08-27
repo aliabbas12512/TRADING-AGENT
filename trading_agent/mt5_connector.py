@@ -32,6 +32,10 @@ class MT5Connector:
         init_kwargs = {}
         if self.config.mt5_path:
             init_kwargs["path"] = self.config.mt5_path
+        if self.config.mt5_login:
+            init_kwargs["login"] = self.config.mt5_login
+            init_kwargs["password"] = self.config.mt5_password
+            init_kwargs["server"] = self.config.mt5_server
 
         if not mt5.initialize(**init_kwargs):
             raise MT5ConnectionError(f"initialize() failed: {mt5.last_error()}")
