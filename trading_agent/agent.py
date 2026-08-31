@@ -8,7 +8,13 @@ from trading_agent.config import Config
 from trading_agent.mt5_connector import MT5Connector
 from trading_agent.order_executor import OrderExecutor
 from trading_agent.risk_manager import RiskManager, RiskParams
-from trading_agent.strategy import Signal, StrategyParams, generate_signal, generate_trend_signal
+from trading_agent.strategy import (
+    Signal,
+    StrategyParams,
+    compute_indicators,
+    generate_signal,
+    generate_trend_signal,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +49,15 @@ class TradingAgent:
         self.connector.connect()
         self._enforce_live_trading_gate()
         self.executor = OrderExecutor(self.connector, self.config.symbol, self.config.magic_number)
+        logger.info(
+            "Config: symbol=%s timeframe=%s min_daily_trades=%d risk_per_trade_pct=%.2f "
+            "max_open_positions=%d",
+            self.config.symbol,
+            self.config.timeframe,
+            self.config.min_daily_trades,
+            self.config.risk_per_trade_pct,
+            self.config.max_open_positions,
+        )
 
     def stop(self) -> None:
         self.connector.shutdown()
@@ -75,6 +90,19 @@ class TradingAgent:
         df = self.connector.fetch_rates(self.config.symbol, self.config.timeframe, RATES_LOOKBACK)
         signal = generate_signal(df, self.strategy_params)
 
+        indicators = compute_indicators(df, self.strategy_params)
+        last_row = indicators.dropna(subset=["fast_ma", "slow_ma", "rsi"]).iloc[-1]
+        logger.info(
+            "close=%.3f fast_ma=%.3f slow_ma=%.3f rsi=%.1f primary_signal=%s trades_today=%d/%d",
+            last_row["close"],
+            last_row["fast_ma"],
+            last_row["slow_ma"],
+            last_row["rsi"],
+            signal.value,
+            self._trade_count_today,
+            self.config.min_daily_trades,
+        )
+
         if signal == Signal.HOLD and self._trade_count_today < self.config.min_daily_trades:
             signal = generate_trend_signal(df, self.strategy_params)
             if signal != Signal.HOLD:
@@ -91,6 +119,13 @@ class TradingAgent:
             logger.info("Signal=HOLD, no action.")
             return
 
+        if open_positions:
+            logger.info(
+                "Signal=%s but %d open position(s) already exist for this symbol/magic.",
+                signal.value,
+                len(open_positions),
+            )
+
         if not self.risk_manager.can_open_new_position(len(open_positions)):
             logger.info("Signal=%s but max open positions (%d) reached.", signal.value, len(open_positions))
             return
@@ -104,8 +139,6 @@ class TradingAgent:
             self._trade_count_today = 0
 
     def _open_position_for_signal(self, signal: Signal, df, balance: float) -> bool:
-        from trading_agent.strategy import compute_indicators
-
         indicators = compute_indicators(df, self.strategy_params)
         last = indicators.dropna(subset=["atr"]).iloc[-1]
         atr_value = last["atr"]
